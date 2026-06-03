@@ -18,7 +18,7 @@ Enter a product idea and AutoPM:
 
 ## How I Used Notion MCP
 
-AutoPM uses `@notionhq/notion-mcp-server` via **stdio transport** for ALL Notion operations:
+AutoPM uses `@notionhq/notion-mcp-server` via **stdio transport** as the primary Notion path:
 
 - **Reads** — `API-post-search` to scan workspace pages, `API-get-block-children` to read task data
 - **Writes** — `API-post-page` to create PRD pages, task breakdowns, standup reports, sprint plans
@@ -57,7 +57,7 @@ async with stdio_client(StdioServerParameters(
                         └──────────────────┘           └─────────────────┘
 ```
 
-**Flow:** HuggingFace generates structured content → Backend formats Notion blocks → MCP server writes to Notion
+**Flow:** HuggingFace generates structured content → Backend formats Notion blocks → MCP server writes to Notion. A direct REST fallback exists only for constrained serverless environments where the Python MCP stdio package is unavailable.
 
 ## Features
 
@@ -87,8 +87,8 @@ async with stdio_client(StdioServerParameters(
 ### Setup
 
 ```bash
-git clone https://github.com/himanshu748/dev-challenge-1.git
-cd dev-challenge-1
+git clone https://github.com/himanshu748/autopm-notion-product-manager.git
+cd autopm-notion-product-manager
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
@@ -108,6 +108,17 @@ Open [http://localhost:8000](http://localhost:8000).
 | `NOTION_TOKEN` | Yes | Notion integration token |
 | `NOTION_PARENT_PAGE_ID` | Yes | Notion page ID for workspace |
 | `HF_MODEL` | No | Default: `Qwen/Qwen2.5-72B-Instruct` |
+
+Leave example secrets blank in `.env.example`; put real tokens only in your local `.env` or deployment dashboard.
+
+## Verification
+
+These checks run without calling HuggingFace or Notion:
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/autopm-pycache python3 -m compileall main.py tests
+python3 -m pytest -q
+```
 
 ## API Endpoints
 

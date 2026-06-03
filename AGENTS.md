@@ -6,7 +6,7 @@
 
 ## Commands
 - Run tests with `python -m pytest`.
-- Check syntax with `python -m compileall main.py tests`.
+- Check syntax with `PYTHONPYCACHEPREFIX=/private/tmp/autopm-pycache python3 -m compileall main.py tests`.
 - Start locally with `uvicorn main:app --reload`.
 
 ## Conventions

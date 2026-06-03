@@ -8,14 +8,15 @@ Architecture:
   FastAPI backend             →  orchestrates both
 """
 
-import os, json, asyncio, logging
+import os, json, logging
 from datetime import date
+from pathlib import Path
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from huggingface_hub import InferenceClient
 import httpx
@@ -32,13 +33,30 @@ log = logging.getLogger("autopm")
 
 load_dotenv()
 
-HF_API_KEY = os.environ.get("HF_API_KEY", "")
-NOTION_TOKEN = os.environ.get("NOTION_TOKEN", "")
-NOTION_PARENT_PAGE_ID = os.environ.get("NOTION_PARENT_PAGE_ID", "")
-HF_MODEL = os.environ.get("HF_MODEL", "Qwen/Qwen2.5-72B-Instruct")
+BASE_DIR = Path(__file__).resolve().parent
+
+
+def get_env(name: str, default: str = "") -> str:
+    return os.environ.get(name, default).strip()
+
+
+def hf_api_key() -> str:
+    return get_env("HF_API_KEY")
+
+
+def notion_token() -> str:
+    return get_env("NOTION_TOKEN")
+
+
+def notion_parent_page_id() -> str:
+    return get_env("NOTION_PARENT_PAGE_ID")
+
+
+def hf_model() -> str:
+    return get_env("HF_MODEL", "Qwen/Qwen2.5-72B-Instruct")
 
 app = FastAPI(title="AutoPM")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 
 # ─── Notion transport layer (MCP primary, httpx fallback) ────────────────────
@@ -51,29 +69,37 @@ class NotionHTTPFallback:
     """Direct Notion REST client — used when MCP stdio is unavailable (e.g. Vercel)."""
 
     def _h(self):
-        return {"Authorization": f"Bearer {NOTION_TOKEN}",
+        return {"Authorization": f"Bearer {notion_token()}",
                 "Notion-Version": NOTION_VER, "Content-Type": "application/json"}
 
     async def call_tool(self, tool: str, args: dict) -> dict:
+        payload = dict(args)
         async with httpx.AsyncClient(timeout=30) as c:
             if tool == "API-post-page":
-                r = await c.post(f"{NOTION_API}/pages", headers=self._h(), json=args)
+                r = await c.post(f"{NOTION_API}/pages", headers=self._h(), json=payload)
             elif tool == "API-post-search":
-                r = await c.post(f"{NOTION_API}/search", headers=self._h(), json=args)
+                r = await c.post(f"{NOTION_API}/search", headers=self._h(), json=payload)
             elif tool == "API-get-block-children":
-                bid = args.pop("block_id")
-                r = await c.get(f"{NOTION_API}/blocks/{bid}/children", headers=self._h(), params=args)
+                bid = payload.pop("block_id")
+                r = await c.get(f"{NOTION_API}/blocks/{bid}/children", headers=self._h(), params=payload)
             elif tool == "API-get-self":
                 r = await c.get(f"{NOTION_API}/users/me", headers=self._h())
             elif tool == "API-patch-page":
-                pid = args.pop("page_id")
-                r = await c.patch(f"{NOTION_API}/pages/{pid}", headers=self._h(), json=args)
+                pid = payload.pop("page_id")
+                r = await c.patch(f"{NOTION_API}/pages/{pid}", headers=self._h(), json=payload)
             elif tool == "API-retrieve-a-page":
-                pid = args.pop("page_id")
+                pid = payload.pop("page_id")
                 r = await c.get(f"{NOTION_API}/pages/{pid}", headers=self._h())
             else:
                 return {"error": f"Unknown tool: {tool}"}
-            return r.json()
+            try:
+                data = r.json()
+            except ValueError:
+                data = {"message": r.text[:300]}
+            if r.status_code >= 400:
+                data.setdefault("status", r.status_code)
+                data.setdefault("message", data.get("message", "Notion REST request failed"))
+            return data
 
 
 def mcp_package_available() -> bool:
@@ -87,7 +113,8 @@ def notion_transport_name() -> str:
 @asynccontextmanager
 async def notion_mcp():
     """Spin up Notion MCP stdio server and yield a ClientSession."""
-    if not NOTION_TOKEN:
+    token = notion_token()
+    if not token:
         raise HTTPException(status_code=500, detail="NOTION_TOKEN not set")
     if not mcp_package_available():
         log.warning("mcp package is not installed; using Notion REST fallback.")
@@ -96,7 +123,7 @@ async def notion_mcp():
     params = StdioServerParameters(
         command="npx",
         args=["-y", "@notionhq/notion-mcp-server"],
-        env={**os.environ, "NOTION_TOKEN": NOTION_TOKEN},
+        env={**os.environ, "NOTION_TOKEN": token},
     )
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
@@ -160,7 +187,7 @@ async def mcp_get_children(session, block_id: str) -> list:
 # ─── HuggingFace ─────────────────────────────────────────────────────────────
 
 async def generate_text(system: str, user_msg: str) -> str:
-    hf = InferenceClient(model=HF_MODEL, token=HF_API_KEY)
+    hf = InferenceClient(model=hf_model(), token=hf_api_key())
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user_msg}]
     out = ""
     for chunk in hf.chat_completion(messages=messages, max_tokens=4096, stream=True):
@@ -238,15 +265,15 @@ def build_task_blocks(prd: dict) -> list:
 # ─── Models ───────────────────────────────────────────────────────────────────
 
 class PRDRequest(BaseModel):
-    idea: str
+    idea: str = Field(..., min_length=10, max_length=2000)
     parent_page_id: Optional[str] = None
 
 class StandupRequest(BaseModel):
     parent_page_id: Optional[str] = None
-    date: Optional[str] = None
+    date: Optional[str] = Field(default=None, max_length=40)
 
 class SprintRequest(BaseModel):
-    sprint_num: int = 1
+    sprint_num: int = Field(default=1, ge=1, le=99)
     parent_page_id: Optional[str] = None
 
 
@@ -254,17 +281,17 @@ class SprintRequest(BaseModel):
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    with open("static/index.html") as f:
+    with open(BASE_DIR / "static" / "index.html") as f:
         return f.read()
 
 
 @app.post("/api/generate-prd")
 async def generate_prd_route(req: PRDRequest):
-    if not HF_API_KEY:
+    if not hf_api_key():
         raise HTTPException(status_code=500, detail="HF_API_KEY not set")
-    if not NOTION_TOKEN:
+    if not notion_token():
         raise HTTPException(status_code=500, detail="NOTION_TOKEN not set")
-    parent_id = req.parent_page_id or NOTION_PARENT_PAGE_ID
+    parent_id = req.parent_page_id or notion_parent_page_id()
     if not parent_id:
         raise HTTPException(status_code=400, detail="parent_page_id required")
 
@@ -291,11 +318,13 @@ async def generate_prd_route(req: PRDRequest):
 
 @app.post("/api/standup")
 async def generate_standup(req: StandupRequest):
-    if not HF_API_KEY:
+    if not hf_api_key():
         raise HTTPException(status_code=500, detail="HF_API_KEY not set")
-    if not NOTION_TOKEN:
+    if not notion_token():
         raise HTTPException(status_code=500, detail="NOTION_TOKEN not set")
-    parent_id = req.parent_page_id or NOTION_PARENT_PAGE_ID
+    parent_id = req.parent_page_id or notion_parent_page_id()
+    if not parent_id:
+        raise HTTPException(status_code=400, detail="parent_page_id required")
     today = req.date or str(date.today())
 
     async with notion_session() as mcp:
@@ -344,11 +373,13 @@ Today: {today}"""
 
 @app.post("/api/plan-sprint")
 async def plan_sprint(req: SprintRequest):
-    if not HF_API_KEY:
+    if not hf_api_key():
         raise HTTPException(status_code=500, detail="HF_API_KEY not set")
-    if not NOTION_TOKEN:
+    if not notion_token():
         raise HTTPException(status_code=500, detail="NOTION_TOKEN not set")
-    parent_id = req.parent_page_id or NOTION_PARENT_PAGE_ID
+    parent_id = req.parent_page_id or notion_parent_page_id()
+    if not parent_id:
+        raise HTTPException(status_code=400, detail="parent_page_id required")
 
     async with notion_session() as mcp:
         # READ backlog from Notion via MCP
@@ -402,17 +433,18 @@ Sprint number: {req.sprint_num}"""
 @app.get("/api/health")
 async def health():
     mcp_ok = False
-    try:
-        async with notion_session() as mcp:
-            me = await mcp_call(mcp, "API-get-self", {})
-            mcp_ok = notion_transport_name() == "mcp-stdio" and bool(me.get("id"))
-    except Exception:
-        pass
+    if notion_token():
+        try:
+            async with notion_session() as mcp:
+                me = await mcp_call(mcp, "API-get-self", {})
+                mcp_ok = notion_transport_name() == "mcp-stdio" and bool(me.get("id"))
+        except Exception:
+            pass
     return {
         "status": "ok",
-        "hf_key": bool(HF_API_KEY),
-        "notion_token": bool(NOTION_TOKEN),
-        "parent_page_id": bool(NOTION_PARENT_PAGE_ID),
+        "hf_key": bool(hf_api_key()),
+        "notion_token": bool(notion_token()),
+        "parent_page_id": bool(notion_parent_page_id()),
         "mcp_connected": mcp_ok,
         "notion_transport": notion_transport_name(),
     }
