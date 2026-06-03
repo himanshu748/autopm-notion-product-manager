@@ -25,6 +25,7 @@ AutoPM uses `@notionhq/notion-mcp-server` via **stdio transport** for ALL Notion
 - **Auth check** — `API-get-self` to verify MCP connectivity on health check
 
 The MCP server is spun up per-request via `npx -y @notionhq/notion-mcp-server` as a stdio child process, managed by the Python `mcp` SDK's `ClientSession`.
+`/api/health` also reports `notion_transport` so MCP stdio and REST fallback are not confused.
 
 ```python
 from mcp import ClientSession, StdioServerParameters
