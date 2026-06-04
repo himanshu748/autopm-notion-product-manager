@@ -45,7 +45,7 @@ def hf_api_key() -> str:
 
 
 def notion_token() -> str:
-    return get_env("NOTION_TOKEN")
+    return get_env("NOTION_TOKEN") or get_env("NOTION_API_KEY")
 
 
 def notion_parent_page_id() -> str:

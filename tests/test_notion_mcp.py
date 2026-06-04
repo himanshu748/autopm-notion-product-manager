@@ -105,6 +105,18 @@ def test_hf_token_alias_configures_health(monkeypatch):
     assert response.json()["hf_key"] is True
 
 
+def test_notion_api_key_alias_configures_health(monkeypatch):
+    monkeypatch.delenv("NOTION_TOKEN", raising=False)
+    monkeypatch.setenv("NOTION_API_KEY", "ntn_test")
+    monkeypatch.delenv("NOTION_PARENT_PAGE_ID", raising=False)
+
+    client = TestClient(main.app)
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json()["notion_token"] is True
+
+
 def test_prd_request_rejects_short_idea():
     client = TestClient(main.app)
 
