@@ -104,12 +104,13 @@ Open [http://localhost:8000](http://localhost:8000).
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `HF_API_KEY` | Yes | HuggingFace API token (free tier) |
-| `NOTION_TOKEN` | Yes | Notion integration token |
+| `HF_API_KEY` | Yes | HuggingFace API token; local runs may use `HF_TOKEN` as a fallback alias |
+| `NOTION_TOKEN` | Yes | Notion token passed to the MCP stdio server or REST fallback |
 | `NOTION_PARENT_PAGE_ID` | Yes | Notion page ID for workspace |
 | `HF_MODEL` | No | Default: `Qwen/Qwen2.5-72B-Instruct` |
 
 Leave example secrets blank in `.env.example`; put real tokens only in your local `.env` or deployment dashboard.
+If `NOTION_TOKEN` is not loaded, live Notion PRD/standup/sprint routes cannot be tested. The REST fallback raises sanitized errors for unsupported tools, missing Notion arguments, non-2xx Notion responses, invalid Notion JSON, or unexpected Notion payload shapes.
 
 ## Verification
 
