@@ -98,6 +98,22 @@ def test_prd_request_rejects_short_idea():
     assert response.status_code == 422
 
 
+def test_parse_json_rejects_malformed_model_payload():
+    with pytest.raises(main.HTTPException) as exc:
+        main._parse_json('{"title": "Broken",')
+
+    assert exc.value.status_code == 502
+    assert exc.value.detail == "Model did not return valid JSON"
+
+
+def test_parse_json_rejects_payload_without_object():
+    with pytest.raises(main.HTTPException) as exc:
+        main._parse_json('["not", "an", "object"]')
+
+    assert exc.value.status_code == 502
+    assert exc.value.detail == "Model did not return valid JSON"
+
+
 def test_standup_requires_parent_page_when_env_missing(monkeypatch):
     monkeypatch.setenv("HF_API_KEY", "hf_test")
     monkeypatch.setenv("NOTION_TOKEN", "ntn_test")

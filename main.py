@@ -202,7 +202,13 @@ def _parse_json(raw: str) -> dict:
     s, e = raw.find("{"), raw.rfind("}") + 1
     if s == -1 or e <= s:
         raise HTTPException(status_code=502, detail="Model did not return valid JSON")
-    return json.loads(raw[s:e])
+    try:
+        payload = json.loads(raw[s:e])
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail="Model did not return valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=502, detail="Model did not return a JSON object")
+    return payload
 
 
 # ─── Block builders ──────────────────────────────────────────────────────────
