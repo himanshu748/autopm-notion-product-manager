@@ -141,6 +141,38 @@ def test_parse_json_rejects_payload_without_object():
     assert exc.value.detail == "Model did not return valid JSON"
 
 
+def test_parse_mcp_tool_result_rejects_invalid_json():
+    result = SimpleNamespace(content=[SimpleNamespace(text="not json")])
+
+    with pytest.raises(main.HTTPException) as exc:
+        main.parse_mcp_tool_result(result, "API-get-self")
+
+    assert exc.value.status_code == 502
+    assert exc.value.detail == "Notion MCP returned invalid JSON for API-get-self."
+
+
+def test_parse_mcp_tool_result_rejects_non_object_payload():
+    result = SimpleNamespace(content=[SimpleNamespace(text="[]")])
+
+    with pytest.raises(main.HTTPException) as exc:
+        main.parse_mcp_tool_result(result, "API-get-self")
+
+    assert exc.value.status_code == 502
+    assert exc.value.detail == (
+        "Notion MCP returned an unexpected payload shape for API-get-self."
+    )
+
+
+def test_parse_mcp_tool_result_rejects_non_text_content():
+    result = SimpleNamespace(content=[SimpleNamespace(data={"id": "notion-user"})])
+
+    with pytest.raises(main.HTTPException) as exc:
+        main.parse_mcp_tool_result(result, "API-get-self")
+
+    assert exc.value.status_code == 502
+    assert exc.value.detail == "Notion MCP returned non-text content for API-get-self."
+
+
 def test_standup_requires_parent_page_when_env_missing(monkeypatch):
     monkeypatch.setenv("HF_API_KEY", "hf_test")
     monkeypatch.setenv("NOTION_TOKEN", "ntn_test")
